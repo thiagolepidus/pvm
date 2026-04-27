@@ -24,6 +24,9 @@ Or install directly from the Git repository:
 curl -fsSL https://raw.githubusercontent.com/thiagolepidus/pvm/main/install.sh | bash
 ```
 
+The remote installer installs Homebrew when it is missing, configures the `shivammathur/php` and
+`shivammathur/extensions` taps, installs `pvm`, and adds Homebrew plus `pvm` to your shell profile.
+
 If your fork uses a different raw URL, override the source URL:
 
 ```sh
