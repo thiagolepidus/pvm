@@ -3,7 +3,7 @@ set -euo pipefail
 
 PVM_INSTALL_DIR="${PVM_INSTALL_DIR:-$HOME/.local/bin}"
 PVM_SHIMS_DIR="${PVM_SHIMS_DIR:-$HOME/.local/pvm/shims}"
-PVM_SOURCE_URL="${PVM_SOURCE_URL:-https://raw.githubusercontent.com/lepidus/pvm/main/bin/pvm}"
+PVM_SOURCE_URL="${PVM_SOURCE_URL:-https://raw.githubusercontent.com/thiagolepidus/pvm/main/bin/pvm}"
 PVM_BIN="$PVM_INSTALL_DIR/pvm"
 PATH_LINE="export PATH=\"$PVM_SHIMS_DIR:$PVM_INSTALL_DIR:\$PATH\""
 

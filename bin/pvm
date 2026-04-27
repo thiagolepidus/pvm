@@ -11,27 +11,21 @@ mkdir -p "$PVM_HOME/shims" "$PVM_CONFIG"
 usage() {
   cat <<'EOF'
 Usage:
-  pvm install 7.4|8.0|8.2 [--with-extensions EXT...]
-  pvm use 7.4|8.0|8.2
-  pvm use --local 7.4|8.0|8.2
+  pvm install VERSION [--with-extensions EXT...]
+  pvm use VERSION
+  pvm use --local VERSION
   pvm current
+
+Supported versions: 5.6, 7.0-7.4, 8.0-8.6
 
 Configure PATH once in your shell:
   export PATH="$HOME/.local/pvm/shims:/path/to/pvm/bin:$PATH"
 EOF
 }
 
-version_suffix() {
-  case "$1" in
-    7.4) echo "74" ;;
-    8.0) echo "80" ;;
-    8.2) echo "82" ;;
-  esac
-}
-
 validate_version() {
   case "$1" in
-    7.4|8.0|8.2)
+    5.6|7.0|7.1|7.2|7.3|7.4|8.0|8.1|8.2|8.3|8.4|8.5|8.6)
       ;;
     *)
       echo "Invalid version: $1" >&2
@@ -40,12 +34,16 @@ validate_version() {
   esac
 }
 
-package_prefix_for_version() {
-  echo "php$(version_suffix "$1")"
+require_brew() {
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "brew not found in PATH; install/configure Homebrew to use pvm" >&2
+    exit 1
+  fi
 }
 
 bin_for_version() {
-  echo "/usr/bin/php$(version_suffix "$1")"
+  require_brew
+  echo "$(brew --prefix)/opt/php@$1/bin/php"
 }
 
 validate_extension() {
@@ -92,6 +90,24 @@ PVM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/pvm"
 PVM_GLOBAL_FILE="$PVM_CONFIG/global"
 PVM_LOCAL_FILE=".php-version"
 
+validate_version() {
+  case "$1" in
+    5.6|7.0|7.1|7.2|7.3|7.4|8.0|8.1|8.2|8.3|8.4|8.5|8.6)
+      ;;
+    *)
+      echo "Invalid PHP version" >&2
+      exit 2
+      ;;
+  esac
+}
+
+require_brew() {
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "brew not found in PATH; install/configure Homebrew to use pvm" >&2
+    exit 1
+  fi
+}
+
 find_local_version() {
   local dir="$PWD"
 
@@ -118,9 +134,12 @@ current_version() {
 
 run_php() {
   local version="$1"
-  local binary="$2"
-  shift 2
+  local binary
+  shift
 
+  validate_version "$version"
+  require_brew
+  binary="$(brew --prefix)/opt/php@$version/bin/php"
   if [ ! -x "$binary" ]; then
     echo "PHP $version is not installed at $binary; run: pvm install $version" >&2
     exit 127
@@ -129,25 +148,50 @@ run_php() {
   exec "$binary" "$@"
 }
 
-case "$(current_version)" in
-  7.4) run_php 7.4 /usr/bin/php74 "$@" ;;
-  8.0) run_php 8.0 /usr/bin/php80 "$@" ;;
-  8.2) run_php 8.2 /usr/bin/php82 "$@" ;;
-  *) echo "Invalid PHP version" >&2; exit 2 ;;
-esac
+run_php "$(current_version)" "$@"
 EOF
 
   chmod +x "$PVM_HOME/shims/php"
 }
 
+brew_php_formula() {
+  echo "shivammathur/php/php@$1"
+}
+
+brew_extension_formula() {
+  echo "shivammathur/extensions/$1@$2"
+}
+
+is_builtin_extension() {
+  local version="$1"
+  local extension="$2"
+  local binary
+  local modules
+
+  binary="$(bin_for_version "$version")"
+  if [ ! -x "$binary" ]; then
+    return 1
+  fi
+
+  modules="$("$binary" -m | tr '[:upper:]' '[:lower:]')"
+  case "$extension" in
+    mysql)
+      printf '%s\n' "$modules" | grep -qx 'mysqli' \
+        && printf '%s\n' "$modules" | grep -qx 'pdo_mysql'
+      ;;
+    *)
+      printf '%s\n' "$modules" | grep -qx "$extension"
+      ;;
+  esac
+}
+
 install_version() {
   local version="${1:-}"
-  local prefix
-  local packages=()
+  local extensions=()
+  local extension
+  local normalized_extension
 
   validate_version "$version"
-  prefix="$(package_prefix_for_version "$version")"
-  packages+=("$prefix-cli")
 
   shift || true
   case "${1:-}" in
@@ -162,7 +206,8 @@ install_version() {
 
       while [ "$#" -gt 0 ]; do
         validate_extension "$1"
-        packages+=("$prefix-$1")
+        normalized_extension="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+        extensions+=("$normalized_extension")
         shift
       done
       ;;
@@ -172,12 +217,34 @@ install_version() {
       ;;
   esac
 
-  if ! command -v yay >/dev/null 2>&1; then
-    echo "yay not found in PATH; install/configure yay to use pvm install" >&2
-    exit 1
+  require_brew
+
+  brew tap shivammathur/php
+  brew install "$(brew_php_formula "$version")"
+
+  if [ "${#extensions[@]}" -gt 0 ]; then
+    brew tap shivammathur/extensions
   fi
 
-  yay -S --needed "${packages[@]}"
+  for extension in "${extensions[@]}"; do
+    if is_builtin_extension "$version" "$extension"; then
+      echo "Extension $extension is already available in PHP $version"
+      continue
+    fi
+
+    if brew install "$(brew_extension_formula "$extension" "$version")"; then
+      continue
+    fi
+
+    if is_builtin_extension "$version" "$extension"; then
+      echo "Extension $extension is already available in PHP $version"
+      continue
+    fi
+
+    echo "Failed to install extension $extension for PHP $version" >&2
+    exit 1
+  done
+
   write_php_shim
 }
 

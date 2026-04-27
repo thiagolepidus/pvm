@@ -1,6 +1,6 @@
 # pvm
 
-`pvm` is a small PHP version manager for Arch Linux development machines using versioned PHP packages from AUR.
+`pvm` is a small PHP version manager for development machines using PHP builds from Homebrew.
 
 It creates a `php` shim and resolves the active version from:
 
@@ -21,7 +21,7 @@ To make it permanent, add that line to your shell profile.
 Or install directly from the Git repository:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/lepidus/pvm/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/thiagolepidus/pvm/main/install.sh | bash
 ```
 
 If your fork uses a different raw URL, override the source URL:
@@ -39,10 +39,12 @@ Install a PHP version:
 pvm install 8.2
 ```
 
+Supported versions are `5.6`, `7.0` to `7.4`, and `8.0` to `8.6`.
+
 Install PHP with extensions:
 
 ```sh
-pvm install 7.4 --with-extensions mysql intl gd zip mbstring xml
+pvm install 7.4 --with-extensions xdebug redis imagick
 ```
 
 Set the global PHP version:
@@ -72,6 +74,26 @@ php -S 127.0.0.1:8082 -t public
 
 ## Requirements
 
-- Arch Linux.
-- `yay` for `pvm install`.
-- Versioned PHP packages such as `php74-cli`, `php80-cli`, and `php82-cli`.
+- Homebrew.
+- The `shivammathur/php` tap for PHP versions.
+- The `shivammathur/extensions` tap for optional external extensions.
+
+`pvm install` taps the required repositories automatically:
+
+```sh
+brew tap shivammathur/php
+brew tap shivammathur/extensions
+```
+
+PHP formulas use the `php@<version>` naming convention, for example:
+
+```sh
+shivammathur/php/php@7.4
+shivammathur/php/php@8.2
+```
+
+External extension formulas use the `<extension>@<version>` naming convention, for example:
+
+```sh
+shivammathur/extensions/xdebug@8.2
+```
