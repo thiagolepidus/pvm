@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PVM_HOME="${PVM_HOME:-$HOME/.local/pvm}"
+PVM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/pvm"
+PVM_GLOBAL_FILE="$PVM_CONFIG/global"
+PVM_LOCAL_FILE=".php-version"
+
+mkdir -p "$PVM_HOME/shims" "$PVM_CONFIG"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  pvm install 7.4|8.0|8.2 [--with-extensions EXT...]
+  pvm use 7.4|8.0|8.2
+  pvm use --local 7.4|8.0|8.2
+  pvm current
+
+Configure PATH once in your shell:
+  export PATH="$HOME/.local/pvm/shims:/path/to/pvm/bin:$PATH"
+EOF
+}
+
+version_suffix() {
+  case "$1" in
+    7.4) echo "74" ;;
+    8.0) echo "80" ;;
+    8.2) echo "82" ;;
+  esac
+}
+
+validate_version() {
+  case "$1" in
+    7.4|8.0|8.2)
+      ;;
+    *)
+      echo "Invalid version: $1" >&2
+      exit 2
+      ;;
+  esac
+}
+
+package_prefix_for_version() {
+  echo "php$(version_suffix "$1")"
+}
+
+bin_for_version() {
+  echo "/usr/bin/php$(version_suffix "$1")"
+}
+
+validate_extension() {
+  case "$1" in
+    ""|*[!A-Za-z0-9_-]*)
+      echo "Invalid extension: $1" >&2
+      exit 2
+      ;;
+  esac
+}
+
+find_local_version() {
+  local dir="$PWD"
+
+  while [ "$dir" != "/" ]; do
+    if [ -f "$dir/$PVM_LOCAL_FILE" ]; then
+      cat "$dir/$PVM_LOCAL_FILE"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+current_version() {
+  if find_local_version >/dev/null; then
+    find_local_version
+  elif [ -f "$PVM_GLOBAL_FILE" ]; then
+    cat "$PVM_GLOBAL_FILE"
+  else
+    echo "8.2"
+  fi
+}
+
+write_php_shim() {
+  mkdir -p "$PVM_HOME/shims"
+
+  cat > "$PVM_HOME/shims/php" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+PVM_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/pvm"
+PVM_GLOBAL_FILE="$PVM_CONFIG/global"
+PVM_LOCAL_FILE=".php-version"
+
+find_local_version() {
+  local dir="$PWD"
+
+  while [ "$dir" != "/" ]; do
+    if [ -f "$dir/$PVM_LOCAL_FILE" ]; then
+      cat "$dir/$PVM_LOCAL_FILE"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+current_version() {
+  if find_local_version >/dev/null; then
+    find_local_version
+  elif [ -f "$PVM_GLOBAL_FILE" ]; then
+    cat "$PVM_GLOBAL_FILE"
+  else
+    echo "8.2"
+  fi
+}
+
+run_php() {
+  local version="$1"
+  local binary="$2"
+  shift 2
+
+  if [ ! -x "$binary" ]; then
+    echo "PHP $version is not installed at $binary; run: pvm install $version" >&2
+    exit 127
+  fi
+
+  exec "$binary" "$@"
+}
+
+case "$(current_version)" in
+  7.4) run_php 7.4 /usr/bin/php74 "$@" ;;
+  8.0) run_php 8.0 /usr/bin/php80 "$@" ;;
+  8.2) run_php 8.2 /usr/bin/php82 "$@" ;;
+  *) echo "Invalid PHP version" >&2; exit 2 ;;
+esac
+EOF
+
+  chmod +x "$PVM_HOME/shims/php"
+}
+
+install_version() {
+  local version="${1:-}"
+  local prefix
+  local packages=()
+
+  validate_version "$version"
+  prefix="$(package_prefix_for_version "$version")"
+  packages+=("$prefix-cli")
+
+  shift || true
+  case "${1:-}" in
+    "")
+      ;;
+    --with-extensions)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "Provide at least one extension after --with-extensions" >&2
+        exit 2
+      fi
+
+      while [ "$#" -gt 0 ]; do
+        validate_extension "$1"
+        packages+=("$prefix-$1")
+        shift
+      done
+      ;;
+    *)
+      echo "Invalid install argument: $1" >&2
+      exit 2
+      ;;
+  esac
+
+  if ! command -v yay >/dev/null 2>&1; then
+    echo "yay not found in PATH; install/configure yay to use pvm install" >&2
+    exit 1
+  fi
+
+  yay -S --needed "${packages[@]}"
+  write_php_shim
+}
+
+use_version() {
+  local scope="global"
+  local version=""
+
+  case "${1:-}" in
+    --local)
+      scope="local"
+      version="${2:-}"
+      ;;
+    *)
+      version="${1:-}"
+      ;;
+  esac
+
+  validate_version "$version"
+  write_php_shim
+
+  if [ "$scope" = "local" ]; then
+    echo "$version" > "$PVM_LOCAL_FILE"
+    echo "Local PHP version set to $version in $PWD/$PVM_LOCAL_FILE"
+  else
+    echo "$version" > "$PVM_GLOBAL_FILE"
+    echo "Global PHP version set to $version"
+  fi
+}
+
+case "${1:-}" in
+  install)
+    shift
+    install_version "$@"
+    ;;
+
+  use)
+    shift
+    use_version "$@"
+    ;;
+
+  current)
+    version="$(current_version)"
+    validate_version "$version"
+    bin="$(bin_for_version "$version")"
+    echo "$version -> $bin"
+    ;;
+
+  *)
+    usage
+    exit 2
+    ;;
+esac
